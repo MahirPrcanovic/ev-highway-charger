@@ -40,6 +40,81 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+## Step-by-Step (Fresh Clone, Windows)
+
+Use these commands if you just cloned the repository and want to run the project for the first time.
+
+1. Clone and enter the project:
+
+```powershell
+git clone https://github.com/MahirPrcanovic/ev-highway-charger.git
+cd ev-highway-charger
+```
+
+2. Create a virtual environment:
+
+```powershell
+py -3.11 -m venv .venv
+```
+
+If `py` is not available, use:
+
+```powershell
+python -m venv .venv
+```
+
+3. Activate the virtual environment:
+
+```powershell
+.\.venv\Scripts\Activate
+```
+
+4. Install dependencies:
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+5. Run a quick validation (faster):
+
+```powershell
+python scripts/run_experiments.py --hours 12 --arrival-rate 9.5 --replications 20 --scenarios 2 4 6
+```
+
+6. Run the full experiment (report-ready):
+
+```powershell
+python scripts/run_experiments.py --hours 12 --arrival-rate 9.5 --replications 120 --scenarios 2 4 6
+```
+
+7. Open generated outputs in the `outputs/` folder.
+
+## Updating After New Git Changes
+
+When you pull new code:
+
+```powershell
+git pull
+.\.venv\Scripts\Activate
+pip install -r requirements.txt
+python scripts/run_experiments.py --hours 12 --arrival-rate 9.5 --replications 120 --scenarios 2 4 6
+```
+
+## Troubleshooting
+
+- If PowerShell blocks activation scripts, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+- If you see missing package errors, run:
+
+```powershell
+pip install -r requirements.txt
+```
+
 ## Run
 
 ```bash
