@@ -22,7 +22,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hours", type=float, default=12.0, help="Simulation horizon in hours")
     parser.add_argument("--arrival-rate", type=float, default=9.5, help="Average vehicle arrivals per hour")
     parser.add_argument("--replications", type=int, default=120, help="Monte Carlo replication count")
+    parser.add_argument("--warmup-minutes", type=float, default=60.0, help="Warm-up period excluded from KPI analysis")
+    parser.add_argument("--metamodel-test-size", type=float, default=0.25, help="Test split ratio for metamodel evaluation")
+    parser.add_argument(
+        "--sensitivity-replications",
+        type=int,
+        default=60,
+        help="Monte Carlo replications per sensitivity configuration",
+    )
     parser.add_argument("--scenarios", type=int, nargs="+", default=[2, 4, 6], help="Charger scenarios")
+    parser.add_argument(
+        "--sensitivity-arrival-rates",
+        type=float,
+        nargs="*",
+        default=[7.0, 9.5, 12.0],
+        help="Arrival-rate levels for sensitivity analysis; pass no values to disable",
+    )
     parser.add_argument(
         "--charger-cost",
         type=float,
@@ -50,6 +65,9 @@ def main() -> None:
     charging_config = ChargingConfig()
     analysis_config = AnalysisConfig(
         replications=args.replications,
+        warm_up_minutes=args.warmup_minutes,
+        metamodel_test_size=args.metamodel_test_size,
+        sensitivity_replications=args.sensitivity_replications,
         infrastructure_cost_per_charger_eur=args.charger_cost,
     )
 
@@ -58,15 +76,26 @@ def main() -> None:
         charging_config=charging_config,
         analysis_config=analysis_config,
     )
-    outputs = runner.run(scenarios=args.scenarios, output_root=args.output_dir)
+    outputs = runner.run(
+        scenarios=args.scenarios,
+        output_root=args.output_dir,
+        sensitivity_arrival_rates=args.sensitivity_arrival_rates,
+    )
 
     summary = outputs["summary"]
     cost_benefit = outputs["cost_benefit"]
+    metamodel_metrics = outputs["metamodel_metrics"]
+    sensitivity_summary = outputs["sensitivity_summary"]
 
     print("=== Scenario Summary ===")
     print(summary[["chargers", "avg_wait_min", "avg_max_wait_min", "avg_p95_wait_min", "avg_utilization"]])
     print("\n=== Cost-Benefit ===")
     print(cost_benefit[["chargers", "added_chargers", "delta_avg_wait_min", "relative_wait_reduction_pct"]])
+    print("\n=== Metamodel Metrics ===")
+    print(metamodel_metrics)
+    if not sensitivity_summary.empty:
+        print("\n=== Sensitivity Snapshot ===")
+        print(sensitivity_summary[["arrival_rate_per_hour", "chargers", "avg_wait_min", "avg_utilization"]])
 
 
 if __name__ == "__main__":

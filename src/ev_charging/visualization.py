@@ -75,3 +75,47 @@ class ResultVisualizer:
         fig.tight_layout()
         fig.savefig(output_path, dpi=180)
         plt.close(fig)
+
+    def plot_metamodel_fit(self, metamodel_predictions: pd.DataFrame, output_path: Path) -> None:
+        """Plot observed versus metamodel-predicted average waiting times."""
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(
+            metamodel_predictions["chargers"],
+            metamodel_predictions["observed_avg_wait_min"],
+            marker="o",
+            linewidth=2,
+            label="Observed",
+        )
+        ax.plot(
+            metamodel_predictions["chargers"],
+            metamodel_predictions["predicted_avg_wait_min"],
+            marker="s",
+            linewidth=2,
+            linestyle="--",
+            label="Metamodel prediction",
+        )
+        ax.set_title("Metamodel Fit: Average Wait vs Chargers")
+        ax.set_xlabel("Chargers")
+        ax.set_ylabel("Average Waiting Time [min]")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+
+    def plot_sensitivity_heatmap(self, sensitivity_summary: pd.DataFrame, output_path: Path) -> None:
+        """Visualize sensitivity of average waiting time to arrival-rate and capacity changes."""
+
+        pivot = sensitivity_summary.pivot(
+            index="arrival_rate_per_hour",
+            columns="chargers",
+            values="avg_wait_min",
+        )
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(pivot, annot=True, fmt=".1f", cmap="YlOrRd", ax=ax)
+        ax.set_title("Sensitivity Heatmap: Average Wait [min]")
+        ax.set_xlabel("Chargers")
+        ax.set_ylabel("Arrival rate [vehicles/hour]")
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)

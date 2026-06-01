@@ -57,10 +57,19 @@ class AnalysisConfig:
     """Parameters used for statistical analysis and what-if economics."""
 
     replications: int = 120
+    warm_up_minutes: float = 60.0
+    metamodel_test_size: float = 0.25
+    sensitivity_replications: int = 60
     infrastructure_cost_per_charger_eur: float = 42000.0
 
     def __post_init__(self) -> None:
         if self.replications < 2:
             raise ValueError("replications must be at least 2 for Monte Carlo analysis")
+        if self.warm_up_minutes < 0:
+            raise ValueError("warm_up_minutes cannot be negative")
+        if not 0 < self.metamodel_test_size < 1:
+            raise ValueError("metamodel_test_size must be in (0, 1)")
+        if self.sensitivity_replications < 2:
+            raise ValueError("sensitivity_replications must be at least 2")
         if self.infrastructure_cost_per_charger_eur <= 0:
             raise ValueError("infrastructure_cost_per_charger_eur must be positive")

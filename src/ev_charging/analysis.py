@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.model_selection import train_test_split
 
 
 class ResultAnalyzer:
@@ -25,6 +28,14 @@ class ResultAnalyzer:
             served_vehicles=("vehicle_id", "count"),
         )
         return rep
+
+    @staticmethod
+    def exclude_warmup(records: pd.DataFrame, warm_up_minutes: float) -> pd.DataFrame:
+        """Exclude vehicles that arrived during warm-up period."""
+
+        if warm_up_minutes <= 0:
+            return records.copy()
+        return records.loc[records["arrival_time_min"] >= warm_up_minutes].reset_index(drop=True)
 
     @staticmethod
     def scenario_summary(records: pd.DataFrame, simulation_minutes: float) -> pd.DataFrame:
@@ -82,3 +93,100 @@ class ResultAnalyzer:
         )
 
         return sorted_summary.fillna(0.0)
+
+    @staticmethod
+    def sensitivity_summary(records: pd.DataFrame, simulation_minutes: float) -> pd.DataFrame:
+        """Aggregate metrics for sensitivity runs across arrival-rate scenarios."""
+
+        if records.empty:
+            return pd.DataFrame()
+
+        rep = records.groupby(["arrival_rate_per_hour", "chargers", "replication_id"], as_index=False).agg(
+            mean_wait_min=("wait_time_min", "mean"),
+            max_wait_min=("wait_time_min", "max"),
+            served_vehicles=("vehicle_id", "count"),
+        )
+
+        scenario = rep.groupby(["arrival_rate_per_hour", "chargers"], as_index=False).agg(
+            avg_wait_min=("mean_wait_min", "mean"),
+            avg_max_wait_min=("max_wait_min", "mean"),
+            avg_served_vehicles=("served_vehicles", "mean"),
+            std_wait_min=("mean_wait_min", "std"),
+            replications=("replication_id", "nunique"),
+        )
+
+        scenario["wait_ci95_halfwidth"] = 1.96 * (
+            scenario["std_wait_min"] / np.sqrt(scenario["replications"].clip(lower=1))
+        )
+
+        total_charge = records.groupby(["arrival_rate_per_hour", "chargers", "replication_id"], as_index=False)[
+            "charge_time_min"
+        ].sum()
+        util = total_charge.groupby(["arrival_rate_per_hour", "chargers"], as_index=False)["charge_time_min"].mean()
+        util = util.rename(columns={"charge_time_min": "avg_total_charge_time_min"})
+        scenario = scenario.merge(util, on=["arrival_rate_per_hour", "chargers"], how="left")
+        scenario["avg_utilization"] = scenario["avg_total_charge_time_min"] / (
+            scenario["chargers"] * simulation_minutes
+        )
+
+        return scenario.sort_values(["arrival_rate_per_hour", "chargers"]).reset_index(drop=True)
+
+    @staticmethod
+    def fit_wait_metamodel(
+        replication_metrics: pd.DataFrame,
+        scenario_summary: pd.DataFrame,
+        test_size: float,
+        random_state: int = 42,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Fit a simple metamodel for queue delay and report R2/MAE."""
+
+        if replication_metrics.empty:
+            raise ValueError("replication_metrics DataFrame is empty")
+
+        features = pd.DataFrame(
+            {
+                "chargers": replication_metrics["chargers"].astype(float),
+                "inv_chargers": 1.0 / replication_metrics["chargers"].astype(float),
+            }
+        )
+        target = replication_metrics["mean_wait_min"].astype(float)
+
+        x_train, x_test, y_train, y_test = train_test_split(
+            features,
+            target,
+            test_size=test_size,
+            random_state=random_state,
+        )
+
+        model = LinearRegression()
+        model.fit(x_train, y_train)
+        y_pred_test = model.predict(x_test)
+
+        metrics = pd.DataFrame(
+            [
+                {
+                    "metric": "R2",
+                    "value": float(r2_score(y_test, y_pred_test)),
+                },
+                {
+                    "metric": "MAE",
+                    "value": float(mean_absolute_error(y_test, y_pred_test)),
+                },
+            ]
+        )
+
+        pred_features = pd.DataFrame(
+            {
+                "chargers": scenario_summary["chargers"].astype(float),
+                "inv_chargers": 1.0 / scenario_summary["chargers"].astype(float),
+            }
+        )
+        predictions = pd.DataFrame(
+            {
+                "chargers": scenario_summary["chargers"],
+                "observed_avg_wait_min": scenario_summary["avg_wait_min"],
+                "predicted_avg_wait_min": model.predict(pred_features),
+            }
+        )
+
+        return metrics, predictions
