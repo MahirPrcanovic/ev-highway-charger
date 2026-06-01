@@ -47,12 +47,20 @@ class ExperimentRunner:
     def _save_markdown_summary(summary: pd.DataFrame, cost_benefit: pd.DataFrame, output_file: Path) -> None:
         """Write concise textual summary suitable for inclusion in a paper appendix."""
 
+        def table_as_markdown(df: pd.DataFrame) -> str:
+            """Return markdown table, with plain-text fallback if tabulate is unavailable."""
+
+            try:
+                return df.to_markdown(index=False)
+            except ImportError:
+                return "```text\n" + df.to_string(index=False) + "\n```"
+
         lines: list[str] = []
         lines.append("# Simulation Findings\n")
         lines.append("## Queue Metrics by Scenario\n")
-        lines.append(summary.to_markdown(index=False))
+        lines.append(table_as_markdown(summary))
         lines.append("\n## Cost-Benefit What-If\n")
-        lines.append(cost_benefit.to_markdown(index=False))
+        lines.append(table_as_markdown(cost_benefit))
         output_file.write_text("\n".join(lines), encoding="utf-8")
 
     def run(self, scenarios: list[int], output_root: Path) -> dict[str, pd.DataFrame]:

@@ -5,3 +5,4 @@ seaborn>=0.13
 pandas>=2.2
 simpy>=4.1
 scikit-learn>=1.4
+tabulate>=0.9
