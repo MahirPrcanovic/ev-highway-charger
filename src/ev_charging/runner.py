@@ -212,8 +212,11 @@ class ExperimentRunner:
         replication_metrics.to_csv(table_dir / "replication_metrics.csv", index=False)
         metamodel_metrics.to_csv(table_dir / "metamodel_metrics.csv", index=False)
         metamodel_predictions.to_csv(table_dir / "metamodel_predictions.csv", index=False)
+        welch_profile_path = table_dir / "welch_warmup_profile.csv"
         if not warmup_profile.empty:
-            warmup_profile.to_csv(table_dir / "welch_warmup_profile.csv", index=False)
+            warmup_profile.to_csv(welch_profile_path, index=False)
+        elif welch_profile_path.exists():
+            welch_profile_path.unlink()
 
         sensitivity_summary = pd.DataFrame()
         if sensitivity_arrival_rates:
