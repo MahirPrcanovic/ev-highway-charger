@@ -67,6 +67,11 @@ def parse_args() -> argparse.Namespace:
         default=PROJECT_ROOT / "outputs",
         help="Directory for CSV tables and figures",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable step-by-step progress messages during simulation",
+    )
     return parser.parse_args()
 
 
@@ -103,6 +108,7 @@ def main() -> None:
         scenarios=args.scenarios,
         output_root=args.output_dir,
         sensitivity_arrival_rates=args.sensitivity_arrival_rates,
+        verbose=not args.quiet,
     )
 
     summary = outputs["summary"]

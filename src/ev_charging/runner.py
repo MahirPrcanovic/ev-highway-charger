@@ -24,10 +24,27 @@ class ExperimentRunner:
     analysis_config: AnalysisConfig
     base_seed: int = 2026
 
-    def _run_scenario(self, chargers: int, simulation_config: SimulationConfig, seed_offset: int = 0) -> pd.DataFrame:
+    @staticmethod
+    def _log(verbose: bool, message: str) -> None:
+        """Print progress messages when verbose mode is enabled."""
+
+        if verbose:
+            print(message, flush=True)
+
+    def _run_scenario(
+        self,
+        chargers: int,
+        simulation_config: SimulationConfig,
+        seed_offset: int = 0,
+        verbose: bool = False,
+        tag: str = "base",
+    ) -> pd.DataFrame:
         """Execute Monte Carlo replications for one charger scenario."""
 
         frames: list[pd.DataFrame] = []
+        total = self.analysis_config.replications
+        report_every = max(1, total // 5)
+        self._log(verbose, f"[simulate:{tag}] chargers={chargers} replications={total}")
         for replication_id in range(self.analysis_config.replications):
             simulator = ChargingStationSimulator(
                 simulation_config=simulation_config,
@@ -39,19 +56,25 @@ class ExperimentRunner:
             rep_df = simulator.run()
             if not rep_df.empty:
                 frames.append(rep_df)
+            done = replication_id + 1
+            if done == 1 or done == total or done % report_every == 0:
+                self._log(verbose, f"  -> {tag} chargers={chargers}: {done}/{total} done")
 
         if not frames:
             return pd.DataFrame()
         return pd.concat(frames, ignore_index=True)
 
-    def _run_sensitivity(self, scenarios: list[int], arrival_rates: list[float]) -> pd.DataFrame:
+    def _run_sensitivity(self, scenarios: list[int], arrival_rates: list[float], verbose: bool = False) -> pd.DataFrame:
         """Run sensitivity study over multiple arrival-rate levels."""
 
         all_frames: list[pd.DataFrame] = []
         for idx, arrival_rate in enumerate(arrival_rates):
+            self._log(verbose, f"[sensitivity] arrival_rate={arrival_rate} vehicles/hour")
             sensitivity_config = replace(self.simulation_config, arrival_rate_per_hour=arrival_rate)
             for chargers in scenarios:
                 frames: list[pd.DataFrame] = []
+                total = self.analysis_config.sensitivity_replications
+                report_every = max(1, total // 5)
                 for replication_id in range(self.analysis_config.sensitivity_replications):
                     simulator = ChargingStationSimulator(
                         simulation_config=sensitivity_config,
@@ -63,6 +86,12 @@ class ExperimentRunner:
                     rep_df = simulator.run()
                     if not rep_df.empty:
                         frames.append(rep_df)
+                    done = replication_id + 1
+                    if done == 1 or done == total or done % report_every == 0:
+                        self._log(
+                            verbose,
+                            f"  -> sensitivity rate={arrival_rate}, chargers={chargers}: {done}/{total} done",
+                        )
 
                 if not frames:
                     continue
@@ -111,18 +140,26 @@ class ExperimentRunner:
         scenarios: list[int],
         output_root: Path,
         sensitivity_arrival_rates: list[float] | None = None,
+        verbose: bool = False,
     ) -> dict[str, pd.DataFrame]:
         """Run all scenarios and generate tabular and graphical outputs."""
 
+        self._log(verbose, "[step] Initializing output directories")
         output_root.mkdir(parents=True, exist_ok=True)
         table_dir = output_root / "tables"
         fig_dir = output_root / "figures"
         table_dir.mkdir(parents=True, exist_ok=True)
         fig_dir.mkdir(parents=True, exist_ok=True)
 
+        self._log(verbose, "[step] Running base Monte Carlo scenarios")
         all_records: list[pd.DataFrame] = []
         for chargers in scenarios:
-            scenario_df = self._run_scenario(chargers, simulation_config=self.simulation_config)
+            scenario_df = self._run_scenario(
+                chargers,
+                simulation_config=self.simulation_config,
+                verbose=verbose,
+                tag="base",
+            )
             if scenario_df.empty:
                 continue
             all_records.append(scenario_df)
@@ -134,6 +171,7 @@ class ExperimentRunner:
         warmup_profile = pd.DataFrame()
         warm_up_minutes = self.analysis_config.warm_up_minutes
         if self.analysis_config.warmup_method == "welch":
+            self._log(verbose, "[step] Estimating warm-up period with Welch method")
             warm_up_minutes, warmup_profile = ResultAnalyzer.estimate_warmup_welch(
                 records=records,
                 simulation_minutes=self.simulation_config.simulation_minutes,
@@ -142,7 +180,9 @@ class ExperimentRunner:
                 stability_bins=self.analysis_config.welch_stability_bins,
                 relative_tolerance=self.analysis_config.welch_relative_tolerance,
             )
+            self._log(verbose, f"  -> Welch estimated warm-up: {warm_up_minutes:.2f} minutes")
 
+        self._log(verbose, "[step] Computing KPI summaries and metamodels")
         records_analysis = ResultAnalyzer.exclude_warmup(records, warm_up_minutes)
 
         if records_analysis.empty:
@@ -164,6 +204,7 @@ class ExperimentRunner:
             random_forest_estimators=self.analysis_config.random_forest_estimators,
         )
 
+        self._log(verbose, "[step] Saving tables")
         records.to_csv(table_dir / "vehicle_records.csv", index=False)
         records_analysis.to_csv(table_dir / "vehicle_records_analysis.csv", index=False)
         summary.to_csv(table_dir / "scenario_summary.csv", index=False)
@@ -176,8 +217,9 @@ class ExperimentRunner:
 
         sensitivity_summary = pd.DataFrame()
         if sensitivity_arrival_rates:
-            sensitivity_records = self._run_sensitivity(scenarios, sensitivity_arrival_rates)
-            sensitivity_records = ResultAnalyzer.exclude_warmup(sensitivity_records, self.analysis_config.warm_up_minutes)
+            self._log(verbose, "[step] Running sensitivity analysis")
+            sensitivity_records = self._run_sensitivity(scenarios, sensitivity_arrival_rates, verbose=verbose)
+            sensitivity_records = ResultAnalyzer.exclude_warmup(sensitivity_records, warm_up_minutes)
             sensitivity_summary = ResultAnalyzer.sensitivity_summary(
                 records=sensitivity_records,
                 simulation_minutes=self.simulation_config.simulation_minutes,
@@ -187,6 +229,7 @@ class ExperimentRunner:
             if not sensitivity_summary.empty:
                 sensitivity_summary.to_csv(table_dir / "sensitivity_summary.csv", index=False)
 
+        self._log(verbose, "[step] Generating figures")
         visualizer = ResultVisualizer()
         visualizer.plot_wait_distribution(records_analysis, fig_dir / "wait_distribution.png")
         visualizer.plot_summary_wait(summary, fig_dir / "wait_summary.png")
@@ -196,6 +239,7 @@ class ExperimentRunner:
         if not sensitivity_summary.empty:
             visualizer.plot_sensitivity_heatmap(sensitivity_summary, fig_dir / "sensitivity_heatmap.png")
 
+        self._log(verbose, "[step] Writing markdown summary")
         self._save_markdown_summary(
             summary,
             cost_benefit,
@@ -204,6 +248,7 @@ class ExperimentRunner:
             warm_up_minutes,
             output_root / "results_summary.md",
         )
+        self._log(verbose, "[done] Simulation pipeline completed")
 
         return {
             "records": records,
