@@ -22,8 +22,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hours", type=float, default=12.0, help="Simulation horizon in hours")
     parser.add_argument("--arrival-rate", type=float, default=9.5, help="Average vehicle arrivals per hour")
     parser.add_argument("--replications", type=int, default=120, help="Monte Carlo replication count")
+    parser.add_argument(
+        "--warmup-method",
+        type=str,
+        choices=["fixed", "welch"],
+        default="welch",
+        help="Warm-up strategy: fixed cutoff or Welch-based estimation",
+    )
     parser.add_argument("--warmup-minutes", type=float, default=60.0, help="Warm-up period excluded from KPI analysis")
+    parser.add_argument("--welch-bin-minutes", type=float, default=10.0, help="Bin size in minutes for Welch warm-up estimation")
+    parser.add_argument("--welch-smoothing-bins", type=int, default=3, help="Rolling-average window (bins) for Welch curve")
+    parser.add_argument("--welch-stability-bins", type=int, default=3, help="Consecutive stable bins required for warm-up detection")
+    parser.add_argument("--welch-tolerance", type=float, default=0.05, help="Relative tolerance around steady-state for Welch")
     parser.add_argument("--metamodel-test-size", type=float, default=0.25, help="Test split ratio for metamodel evaluation")
+    parser.add_argument(
+        "--rf-estimators",
+        type=int,
+        default=200,
+        help="Number of trees for RandomForest metamodel",
+    )
     parser.add_argument(
         "--sensitivity-replications",
         type=int,
@@ -65,8 +82,14 @@ def main() -> None:
     charging_config = ChargingConfig()
     analysis_config = AnalysisConfig(
         replications=args.replications,
+        warmup_method=args.warmup_method,
         warm_up_minutes=args.warmup_minutes,
+        welch_bin_minutes=args.welch_bin_minutes,
+        welch_smoothing_bins=args.welch_smoothing_bins,
+        welch_stability_bins=args.welch_stability_bins,
+        welch_relative_tolerance=args.welch_tolerance,
         metamodel_test_size=args.metamodel_test_size,
+        random_forest_estimators=args.rf_estimators,
         sensitivity_replications=args.sensitivity_replications,
         infrastructure_cost_per_charger_eur=args.charger_cost,
     )
@@ -85,8 +108,11 @@ def main() -> None:
     summary = outputs["summary"]
     cost_benefit = outputs["cost_benefit"]
     metamodel_metrics = outputs["metamodel_metrics"]
+    warm_up_minutes = outputs["warm_up_minutes"].iloc[0]["warm_up_minutes"]
     sensitivity_summary = outputs["sensitivity_summary"]
 
+    print(f"=== Warm-up ({args.warmup_method}) ===")
+    print(f"Estimated/applied warm-up minutes: {warm_up_minutes:.2f}")
     print("=== Scenario Summary ===")
     print(summary[["chargers", "avg_wait_min", "avg_max_wait_min", "avg_p95_wait_min", "avg_utilization"]])
     print("\n=== Cost-Benefit ===")

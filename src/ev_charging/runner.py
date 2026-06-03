@@ -80,6 +80,7 @@ class ExperimentRunner:
         summary: pd.DataFrame,
         cost_benefit: pd.DataFrame,
         metamodel_metrics: pd.DataFrame,
+        warmup_method: str,
         warm_up_minutes: float,
         output_file: Path,
     ) -> None:
@@ -95,6 +96,7 @@ class ExperimentRunner:
 
         lines: list[str] = []
         lines.append("# Simulation Findings\n")
+        lines.append(f"Warm-up method: {warmup_method}.\n")
         lines.append(f"Warm-up period excluded from KPI analysis: {warm_up_minutes:.1f} minutes.\n")
         lines.append("## Queue Metrics by Scenario\n")
         lines.append(table_as_markdown(summary))
@@ -129,7 +131,19 @@ class ExperimentRunner:
             raise RuntimeError("No simulation records were produced")
 
         records = pd.concat(all_records, ignore_index=True)
-        records_analysis = ResultAnalyzer.exclude_warmup(records, self.analysis_config.warm_up_minutes)
+        warmup_profile = pd.DataFrame()
+        warm_up_minutes = self.analysis_config.warm_up_minutes
+        if self.analysis_config.warmup_method == "welch":
+            warm_up_minutes, warmup_profile = ResultAnalyzer.estimate_warmup_welch(
+                records=records,
+                simulation_minutes=self.simulation_config.simulation_minutes,
+                bin_minutes=self.analysis_config.welch_bin_minutes,
+                smoothing_bins=self.analysis_config.welch_smoothing_bins,
+                stability_bins=self.analysis_config.welch_stability_bins,
+                relative_tolerance=self.analysis_config.welch_relative_tolerance,
+            )
+
+        records_analysis = ResultAnalyzer.exclude_warmup(records, warm_up_minutes)
 
         if records_analysis.empty:
             raise RuntimeError("Warm-up exclusion removed all records; reduce warm_up_minutes")
@@ -147,6 +161,7 @@ class ExperimentRunner:
             replication_metrics=replication_metrics,
             scenario_summary=summary,
             test_size=self.analysis_config.metamodel_test_size,
+            random_forest_estimators=self.analysis_config.random_forest_estimators,
         )
 
         records.to_csv(table_dir / "vehicle_records.csv", index=False)
@@ -156,6 +171,8 @@ class ExperimentRunner:
         replication_metrics.to_csv(table_dir / "replication_metrics.csv", index=False)
         metamodel_metrics.to_csv(table_dir / "metamodel_metrics.csv", index=False)
         metamodel_predictions.to_csv(table_dir / "metamodel_predictions.csv", index=False)
+        if not warmup_profile.empty:
+            warmup_profile.to_csv(table_dir / "welch_warmup_profile.csv", index=False)
 
         sensitivity_summary = pd.DataFrame()
         if sensitivity_arrival_rates:
@@ -183,7 +200,8 @@ class ExperimentRunner:
             summary,
             cost_benefit,
             metamodel_metrics,
-            self.analysis_config.warm_up_minutes,
+            self.analysis_config.warmup_method,
+            warm_up_minutes,
             output_root / "results_summary.md",
         )
 
@@ -194,5 +212,7 @@ class ExperimentRunner:
             "cost_benefit": cost_benefit,
             "metamodel_metrics": metamodel_metrics,
             "metamodel_predictions": metamodel_predictions,
+            "warm_up_minutes": pd.DataFrame([{"warm_up_minutes": warm_up_minutes}]),
+            "warmup_profile": warmup_profile,
             "sensitivity_summary": sensitivity_summary,
         }

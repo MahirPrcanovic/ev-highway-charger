@@ -57,18 +57,36 @@ class AnalysisConfig:
     """Parameters used for statistical analysis and what-if economics."""
 
     replications: int = 120
+    warmup_method: str = "welch"
     warm_up_minutes: float = 60.0
+    welch_bin_minutes: float = 10.0
+    welch_smoothing_bins: int = 3
+    welch_stability_bins: int = 3
+    welch_relative_tolerance: float = 0.05
     metamodel_test_size: float = 0.25
+    random_forest_estimators: int = 200
     sensitivity_replications: int = 60
     infrastructure_cost_per_charger_eur: float = 42000.0
 
     def __post_init__(self) -> None:
         if self.replications < 2:
             raise ValueError("replications must be at least 2 for Monte Carlo analysis")
+        if self.warmup_method not in {"fixed", "welch"}:
+            raise ValueError("warmup_method must be either 'fixed' or 'welch'")
         if self.warm_up_minutes < 0:
             raise ValueError("warm_up_minutes cannot be negative")
+        if self.welch_bin_minutes <= 0:
+            raise ValueError("welch_bin_minutes must be positive")
+        if self.welch_smoothing_bins < 1:
+            raise ValueError("welch_smoothing_bins must be at least 1")
+        if self.welch_stability_bins < 1:
+            raise ValueError("welch_stability_bins must be at least 1")
+        if not 0 < self.welch_relative_tolerance < 1:
+            raise ValueError("welch_relative_tolerance must be in (0, 1)")
         if not 0 < self.metamodel_test_size < 1:
             raise ValueError("metamodel_test_size must be in (0, 1)")
+        if self.random_forest_estimators < 10:
+            raise ValueError("random_forest_estimators must be at least 10")
         if self.sensitivity_replications < 2:
             raise ValueError("sensitivity_replications must be at least 2")
         if self.infrastructure_cost_per_charger_eur <= 0:

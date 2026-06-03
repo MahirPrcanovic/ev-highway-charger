@@ -80,21 +80,28 @@ class ResultVisualizer:
         """Plot observed versus metamodel-predicted average waiting times."""
 
         fig, ax = plt.subplots(figsize=(10, 6))
+        observed = (
+            metamodel_predictions[["chargers", "observed_avg_wait_min"]]
+            .drop_duplicates(subset=["chargers"])
+            .sort_values("chargers")
+        )
         ax.plot(
-            metamodel_predictions["chargers"],
-            metamodel_predictions["observed_avg_wait_min"],
+            observed["chargers"],
+            observed["observed_avg_wait_min"],
             marker="o",
             linewidth=2,
             label="Observed",
         )
-        ax.plot(
-            metamodel_predictions["chargers"],
-            metamodel_predictions["predicted_avg_wait_min"],
-            marker="s",
-            linewidth=2,
-            linestyle="--",
-            label="Metamodel prediction",
-        )
+        for model_name, group in metamodel_predictions.groupby("model"):
+            sorted_group = group.sort_values("chargers")
+            ax.plot(
+                sorted_group["chargers"],
+                sorted_group["predicted_avg_wait_min"],
+                marker="s",
+                linewidth=2,
+                linestyle="--",
+                label=f"{model_name} prediction",
+            )
         ax.set_title("Metamodel Fit: Average Wait vs Chargers")
         ax.set_xlabel("Chargers")
         ax.set_ylabel("Average Waiting Time [min]")
