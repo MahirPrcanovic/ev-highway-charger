@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -123,6 +124,51 @@ class ResultVisualizer:
         ax.set_title("Sensitivity Heatmap: Average Wait [min]")
         ax.set_xlabel("Chargers")
         ax.set_ylabel("Arrival rate [vehicles/hour]")
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+
+    def plot_sensitivity_heatmap_2d(self, sensitivity_2d: pd.DataFrame, output_path: Path) -> None:
+        """2D heatmap: arrival_rate × charging-rate k → average waiting time."""
+
+        pivot = sensitivity_2d.pivot(
+            index="arrival_rate_per_hour",
+            columns="k_value",
+            values="avg_wait_min",
+        )
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(pivot, annot=True, fmt=".1f", cmap="YlOrRd", ax=ax)
+        ax.set_title("2D Sensitivity: Avg Wait [min] — Arrival Rate × Charging Rate k")
+        ax.set_xlabel("Charging rate constant k [1/min]")
+        ax.set_ylabel("Arrival rate [vehicles/hour]")
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+
+    def plot_feature_importance(self, importance_df: pd.DataFrame, output_path: Path) -> None:
+        """Horizontal bar chart of Random Forest feature importances."""
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sorted_df = importance_df.sort_values("importance", ascending=True)
+        ax.barh(sorted_df["feature"], sorted_df["importance"], color="#0072B2")
+        ax.set_title("Random Forest — Feature Importances")
+        ax.set_xlabel("Mean Importance")
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+
+    def plot_replication_convergence(self, replication_metrics: pd.DataFrame, output_path: Path) -> None:
+        """Cumulative mean of average wait time across replications per charger scenario."""
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for chargers, group in replication_metrics.groupby("chargers"):
+            vals = group.sort_values("replication_id")["mean_wait_min"].values
+            cumulative_mean = np.cumsum(vals) / np.arange(1, len(vals) + 1)
+            ax.plot(range(1, len(cumulative_mean) + 1), cumulative_mean, label=f"{chargers} chargers")
+        ax.set_title("Replication Convergence: Cumulative Mean Wait Time")
+        ax.set_xlabel("Number of Replications")
+        ax.set_ylabel("Cumulative Mean Wait [min]")
+        ax.legend()
         fig.tight_layout()
         fig.savefig(output_path, dpi=180)
         plt.close(fig)

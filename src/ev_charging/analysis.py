@@ -23,6 +23,31 @@ class ResultAnalyzer:
         return t_crit * (std / np.sqrt(n_safe))
 
     @staticmethod
+    def determine_n_replications(
+        pilot_data: np.ndarray,
+        target_half_width: float,
+        confidence: float = 0.95,
+    ) -> int:
+        """Estimate minimum replications needed for a given CI half-width using t-distribution.
+
+        Args:
+            pilot_data: Array of per-replication metric values from a pilot run.
+            target_half_width: Desired 95% CI half-width in the same units as pilot_data.
+            confidence: Confidence level (default 0.95).
+
+        Returns:
+            Recommended minimum number of replications.
+        """
+        n0 = len(pilot_data)
+        if n0 < 2:
+            raise ValueError("pilot_data must have at least 2 observations")
+        s = float(np.std(pilot_data, ddof=1))
+        alpha = 1.0 - confidence
+        t_crit = float(stats.t.ppf(1.0 - alpha / 2.0, df=n0 - 1))
+        n_needed = int(np.ceil((t_crit * s / target_half_width) ** 2))
+        return max(n_needed, n0)
+
+    @staticmethod
     def replication_metrics(records: pd.DataFrame) -> pd.DataFrame:
         """Compute per-replication queue indicators for each charger scenario."""
 
@@ -211,19 +236,52 @@ class ResultAnalyzer:
         test_size: float,
         random_forest_estimators: int,
         random_state: int = 42,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Fit linear and random-forest metamodels and report R2/MAE."""
+        training_data: pd.DataFrame | None = None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Fit linear and random-forest metamodels and report R2/MAE/feature importances.
 
-        if replication_metrics.empty:
-            raise ValueError("replication_metrics DataFrame is empty")
+        Args:
+            replication_metrics: Per-replication aggregates (used when training_data is None).
+            scenario_summary: Scenario-level aggregates used for prediction visualization.
+            test_size: Fraction of data held out for evaluation.
+            random_forest_estimators: Number of trees in RandomForestRegressor.
+            random_state: Random seed for reproducibility.
+            training_data: Optional multi-dimensional training set with a ``mean_wait_min``
+                column as target and all other numeric columns as features. When provided,
+                enables richer metamodeling across the full parameter space.
 
-        features = pd.DataFrame(
-            {
-                "chargers": replication_metrics["chargers"].astype(float),
-                "inv_chargers": 1.0 / replication_metrics["chargers"].astype(float),
-            }
-        )
-        target = replication_metrics["mean_wait_min"].astype(float)
+        Returns:
+            Tuple of (metrics_df, predictions_df, feature_importance_df).
+        """
+        if training_data is not None and not training_data.empty:
+            feature_cols = [c for c in training_data.columns if c != "mean_wait_min"]
+            features = training_data[feature_cols].astype(float)
+            target = training_data["mean_wait_min"].astype(float)
+            # For scenario predictions, fix non-charger features to their training means
+            mean_vals = features.mean()
+            pred_features = pd.DataFrame(
+                {col: [mean_vals[col]] * len(scenario_summary) for col in feature_cols}
+            )
+            pred_features["chargers"] = scenario_summary["chargers"].astype(float).values
+            if "inv_chargers" in feature_cols:
+                pred_features["inv_chargers"] = 1.0 / pred_features["chargers"]
+        else:
+            if replication_metrics.empty:
+                raise ValueError("replication_metrics DataFrame is empty")
+            feature_cols = ["chargers", "inv_chargers"]
+            features = pd.DataFrame(
+                {
+                    "chargers": replication_metrics["chargers"].astype(float),
+                    "inv_chargers": 1.0 / replication_metrics["chargers"].astype(float),
+                }
+            )
+            target = replication_metrics["mean_wait_min"].astype(float)
+            pred_features = pd.DataFrame(
+                {
+                    "chargers": scenario_summary["chargers"].astype(float),
+                    "inv_chargers": 1.0 / scenario_summary["chargers"].astype(float),
+                }
+            )
 
         x_train, x_test, y_train, y_test = train_test_split(
             features,
@@ -232,20 +290,15 @@ class ResultAnalyzer:
             random_state=random_state,
         )
 
+        rf_model = RandomForestRegressor(
+            n_estimators=random_forest_estimators,
+            random_state=random_state,
+            n_jobs=-1,
+        )
         models: dict[str, object] = {
             "linear_regression": LinearRegression(),
-            "random_forest": RandomForestRegressor(
-                n_estimators=random_forest_estimators,
-                random_state=random_state,
-            ),
+            "random_forest": rf_model,
         }
-
-        pred_features = pd.DataFrame(
-            {
-                "chargers": scenario_summary["chargers"].astype(float),
-                "inv_chargers": 1.0 / scenario_summary["chargers"].astype(float),
-            }
-        )
 
         metric_rows: list[dict[str, float | str]] = []
         prediction_frames: list[pd.DataFrame] = []
@@ -273,7 +326,7 @@ class ResultAnalyzer:
                         "model": model_name,
                         "chargers": scenario_summary["chargers"],
                         "observed_avg_wait_min": scenario_summary["avg_wait_min"],
-                        "predicted_avg_wait_min": model.predict(pred_features),
+                        "predicted_avg_wait_min": model.predict(pred_features[feature_cols]),
                     }
                 )
             )
@@ -281,4 +334,10 @@ class ResultAnalyzer:
         metrics = pd.DataFrame(metric_rows)
         predictions = pd.concat(prediction_frames, ignore_index=True)
 
-        return metrics, predictions
+        importance_rows = [
+            {"feature": feat, "importance": float(imp)}
+            for feat, imp in zip(feature_cols, rf_model.feature_importances_)
+        ]
+        feature_importance = pd.DataFrame(importance_rows).sort_values("importance", ascending=False).reset_index(drop=True)
+
+        return metrics, predictions, feature_importance

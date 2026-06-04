@@ -62,6 +62,25 @@ def parse_args() -> argparse.Namespace:
         help="Cost per additional fast charger in EUR",
     )
     parser.add_argument(
+        "--metamodel-n-samples",
+        type=int,
+        default=200,
+        help="Number of random parameter combinations for metamodel training data",
+    )
+    parser.add_argument(
+        "--metamodel-reps-per-sample",
+        type=int,
+        default=5,
+        help="Replications per sample when generating metamodel training data",
+    )
+    parser.add_argument(
+        "--k-sensitivity-values",
+        type=float,
+        nargs="+",
+        default=[0.02, 0.035, 0.055, 0.075, 0.10],
+        help="Charging rate constant k values for 2D sensitivity analysis",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=PROJECT_ROOT / "outputs",
@@ -97,6 +116,9 @@ def main() -> None:
         random_forest_estimators=args.rf_estimators,
         sensitivity_replications=args.sensitivity_replications,
         infrastructure_cost_per_charger_eur=args.charger_cost,
+        metamodel_n_samples=args.metamodel_n_samples,
+        metamodel_reps_per_sample=args.metamodel_reps_per_sample,
+        k_sensitivity_values=args.k_sensitivity_values,
     )
 
     runner = ExperimentRunner(
@@ -125,9 +147,19 @@ def main() -> None:
     print(cost_benefit[["chargers", "added_chargers", "delta_avg_wait_min", "relative_wait_reduction_pct"]])
     print("\n=== Metamodel Metrics ===")
     print(metamodel_metrics)
+    n_reps_rec = outputs["n_replications_recommendation"]
+    print(f"\n=== Replication Recommendation ===")
+    print(n_reps_rec.to_string(index=False))
+    feature_importance = outputs["feature_importance"]
+    print("\n=== Feature Importances (RF) ===")
+    print(feature_importance.to_string(index=False))
     if not sensitivity_summary.empty:
-        print("\n=== Sensitivity Snapshot ===")
+        print("\n=== Sensitivity Snapshot (1D) ===")
         print(sensitivity_summary[["arrival_rate_per_hour", "chargers", "avg_wait_min", "avg_utilization"]])
+    sensitivity_2d = outputs["sensitivity_2d"]
+    if not sensitivity_2d.empty:
+        print("\n=== 2D Sensitivity Snapshot (arrival_rate x k) ===")
+        print(sensitivity_2d[["arrival_rate_per_hour", "k_value", "avg_wait_min"]])
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(slots=True)
@@ -67,6 +67,9 @@ class AnalysisConfig:
     random_forest_estimators: int = 200
     sensitivity_replications: int = 60
     infrastructure_cost_per_charger_eur: float = 42000.0
+    k_sensitivity_values: list[float] = field(default_factory=lambda: [0.02, 0.035, 0.055, 0.075, 0.10])
+    metamodel_n_samples: int = 200
+    metamodel_reps_per_sample: int = 5
 
     def __post_init__(self) -> None:
         if self.replications < 2:
@@ -91,3 +94,9 @@ class AnalysisConfig:
             raise ValueError("sensitivity_replications must be at least 2")
         if self.infrastructure_cost_per_charger_eur <= 0:
             raise ValueError("infrastructure_cost_per_charger_eur must be positive")
+        if self.metamodel_n_samples < 20:
+            raise ValueError("metamodel_n_samples must be at least 20")
+        if self.metamodel_reps_per_sample < 2:
+            raise ValueError("metamodel_reps_per_sample must be at least 2")
+        if not self.k_sensitivity_values:
+            raise ValueError("k_sensitivity_values must not be empty")
